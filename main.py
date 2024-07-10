@@ -14,12 +14,8 @@ from pydantic import BaseModel
 from typing import Any, Dict, List
 import firebase_admin
 from firebase_admin import credentials, firestore
-import logging
-import bcrypt
-
-# Logger
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+import my_logger
+import my_utility
 
 # Firestore Init
 cred = credentials.Certificate("aviato-demo-firebase-service-key.json")
@@ -27,17 +23,6 @@ firebase_admin.initialize_app(cred)
 db = firestore.client()
 
 app = FastAPI()
-
-# Utility Functions
-def hash_password(password: str) -> str:
-    hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-    return hashed.decode('utf-8')
-
-def process_user_data(user_data: Dict[str, Any]) -> Dict[str, Any]:
-    for key, value in user_data.items():
-        if key in ["pass", "password"]:
-            user_data[key] = hash_password(value)
-    return user_data
 
 
 """
@@ -68,14 +53,14 @@ Create User
 async def add_user(req: UserRequest):
     try:
         project_id = str(req.project_id)
-        user_data = process_user_data(req.data)
+        user_data = my_utility.process_user_data(req.data)
         user_ref = db.collection(project_id).document()
         user_data["id"] = user_ref.id
         user_ref.set(user_data)
-        logger.info(f"User created with ID: {user_ref.id} in project: {project_id}")
+        my_logger.logger.info(f"User created with ID: {user_ref.id} in project: {project_id}")
         return user_data
     except Exception as e:
-        logger.error(f"Error creating user in project {project_id}: {str(e)}")
+        my_logger.logger.error(f"Error creating user in project {project_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
@@ -91,10 +76,10 @@ async def get_users(project_id: int):
         users_ref = db.collection(project_id)
         docs = users_ref.stream()
         users = [doc.to_dict() for doc in docs]
-        logger.info(f"Retrieved users for project: {project_id}")
+        my_logger.logger.info(f"Retrieved users for project: {project_id}")
         return users
     except Exception as e:
-        logger.error(f"Error retrieving users for project {project_id}: {str(e)}")
+        my_logger.logger.error(f"Error retrieving users for project {project_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
@@ -108,7 +93,7 @@ UpdateUser Details:
 async def update_users(user_id: str, req: UserRequest):
     try:
         project_id = str(req.project_id)
-        user_data = process_user_data(req.data)
+        user_data = my_utility.process_user_data(req.data)
         user_ref = db.collection(project_id).document(user_id)
         user = user_ref.get()
         if not user.exists:
@@ -116,13 +101,13 @@ async def update_users(user_id: str, req: UserRequest):
         existing_data = user.to_dict()
         existing_data.update(user_data)
         user_ref.set(existing_data)
-        logger.info(f"Updated user with ID: {user_id} in project: {project_id}")
+        my_logger.logger.info(f"Updated user with ID: {user_id} in project: {project_id}")
         return existing_data
     except HTTPException as e:
-        logger.warning(f"User not found: {user_id} in project: {project_id}")
+        my_logger.logger.warning(f"User not found: {user_id} in project: {project_id}")
         raise e
     except Exception as e:
-        logger.error(f"Error updating user {user_id} in project {project_id}: {str(e)}")
+        my_logger.logger.error(f"Error updating user {user_id} in project {project_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
@@ -140,11 +125,32 @@ async def delete_users(project_id: int, user_id: str):
         if not user.exists:
             raise HTTPException(status_code=404, detail="User not found")
         user_ref.delete()
-        logger.info(f"Deleted user with ID: {user_id} from project: {project_id}")
+        my_logger.logger.info(f"Deleted user with ID: {user_id} from project: {project_id}")
         return {"message": "User deleted successfully"}
     except HTTPException as e:
-        logger.warning(f"User not found: {user_id} in project: {project_id}")
+        my_logger.logger.warning(f"User not found: {user_id} in project: {project_id}")
         raise e
     except Exception as e:
-        logger.error(f"Error deleting user {user_id} in project {project_id}: {str(e)}")
+        my_logger.logger.error(f"Error deleting user {user_id} in project {project_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+
+# Email List
+class InviteRequest(BaseModel):
+    recipients: List[str]
+
+"""
+Send Email Invite:
+    Endpoint: POST /invite
+    Response: JSON confirming invitation
+"""
+@app.post('/invite')
+async def invite(req: InviteRequest):
+    try:
+        my_utility.send_invitation_email(req.recipients)
+        return {"message": "Invitation emails sent successfully"}
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        my_logger.logger.error(f"Error sending invitation emails: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
