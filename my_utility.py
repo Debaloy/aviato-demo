@@ -44,20 +44,21 @@ def send_invitation_email(recipients: List[str]):
     </html>
     """
 
-    msg = MIMEMultipart()
-    msg['From'] = config["SENDER_MAIL"]
-    msg['Subject'] = subject
-
-    msg.attach(MIMEText(body, 'html'))
-
     try:
         with smtplib.SMTP(config["MAIL_SERVER"], config["MAIL_PORT"]) as server:
             server.starttls()
             server.login(config["SENDER_MAIL"], config["SENDER_PASS"])
             for recipient in recipients:
+                msg = MIMEMultipart("alternative")
+                msg['From'] = config["SENDER_MAIL"]
                 msg['To'] = recipient
+                msg['Subject'] = subject
+
+                part = MIMEText(body, 'html')
+                msg.attach(part)
+
                 server.sendmail(config["SENDER_MAIL"], recipient, msg.as_string())
-        my_logger.logger.info("Invitation emails sent successfully.")
+                my_logger.logger.info(f"Invitation email sent successfully to {recipient}.")
     except Exception as e:
         my_logger.logger.error(f"Error sending invitation emails: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
